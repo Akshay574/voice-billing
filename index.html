@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sahjanand Provision Store - Voice Billing</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; padding: 20px; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #d32f2f; }
+        .form-group { margin-bottom: 15px; }
+        select, button { width: 100%; padding: 10px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; }
+        button { cursor: pointer; border: none; font-weight: bold; margin-top: 10px; }
+        .btn-mic { background-color: #1976d2; color: white; }
+        .btn-mic.listening { background-color: #d32f2f; animation: pulse 1.5s infinite; }
+        .btn-save { background-color: #388e3c; color: white; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th { background-color: #f4f4f9; }
+        .total-row { font-weight: bold; font-size: 18px; text-align: right; }
+        #status { text-align: center; color: #666; margin-top: 10px; font-size: 14px; }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>સહજાનંદ પ્રોવિઝન સ્ટોર</h2>
+    
+    <div class="form-group">
+        <label for="customer">Customer Name (Udhar Khata):</label>
+        <select id="customer">
+            <option value="Select">Select Customer</option>
+            <option value="Soni">Soni</option>
+            <option value="Patel">Patel</option>
+            <option value="Sharma">Sharma</option>
+        </select>
+    </div>
+
+    <button id="micBtn" class="btn-mic">🎤 Start Voice Billing</button>
+    <div id="status">Click the mic and speak (e.g., "Maggi 25" or "મેગી 25")</div>
+
+    <table id="billTable">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Price (₹)</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody id="billBody">
+            <!-- Rows will be added here -->
+        </tbody>
+        <tfoot>
+            <tr>
+                <td class="total-row">Total:</td>
+                <td colspan="2" class="total-row" id="totalAmount">₹0</td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <button id="saveBtn" class="btn-save">💾 Save Bill to Google Sheets</button>
+</div>
+
+<script>
+    let total = 0;
+    const billData = [];
+    const micBtn = document.getElementById('micBtn');
+    const statusTxt = document.getElementById('status');
+    const billBody = document.getElementById('billBody');
+    const totalAmount = document.getElementById('totalAmount');
+
+    // Initialize Speech Recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'gu-IN'; // Supports Gujarati & English mix
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    micBtn.addEventListener('click', () => {
+        recognition.start();
+        micBtn.classList.add('listening');
+        micBtn.innerText = "Listening...";
+        statusTxt.innerText = "Speak now...";
+    });
+
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript.trim();
+        statusTxt.innerText = `You said: "${transcript}"`;
+        parseVoiceInput(transcript);
+    };
+
+    recognition.onspeechend = () => {
+        recognition.stop();
+        micBtn.classList.remove('listening');
+        micBtn.innerText = "🎤 Start Voice Billing";
+    };
+
+    recognition.onerror = (event) => {
+        statusTxt.innerText = "Error occurred in recognition: " + event.error;
+        micBtn.classList.remove('listening');
+        micBtn.innerText = "🎤 Start Voice Billing";
+    };
+
+    function parseVoiceInput(text) {
+        // Regex to separate product name from the last number (price)
+        // E.g., "bajnano lot 1kg 45" -> Product: "bajnano lot 1kg", Price: 45
+        const match = text.match(/(.+?)\s+(\d+)$/);
+        
+        if (match) {
+            const product = match[1].trim();
+            const price = parseInt(match[2], 10);
+            addBillItem(product, price);
+        } else {
+            statusTxt.innerText = `Could not find price in: "${text}". Please say "Item Price" (e.g., Maggi 25)`;
+        }
+    }
+
+    function addBillItem(product, price) {
+        // Add to array
+        billData.push({ product, price });
+        
+        // Update Total
+        total += price;
+        totalAmount.innerText = `₹${total}`;
+
+        // Add to UI Table
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${product}</td>
+            <td>₹${price}</td>
+            <td><button onclick="removeItem(this, ${price})" style="background:red; color:white; padding:5px; margin:0;">X</button></td>
+        `;
+        billBody.appendChild(row);
+    }
+
+    window.removeItem = function(btn, price) {
+        const row = btn.parentNode.parentNode;
+        row.parentNode.removeChild(row);
+        total -= price;
+        totalAmount.innerText = `₹${total}`;
+        // Note: For a production app, you would also remove it from the billData array here.
+    };
+
+    // Placeholder for Google Sheets API integration
+    document.getElementById('saveBtn').addEventListener('click', () => {
+        const customerName = document.getElementById('customer').value;
+        if (customerName === "Select") {
+            alert("Please select a customer first!");
+            return;
+        }
+        if (total === 0) {
+            alert("Bill is empty!");
+            return;
+        }
+
+        const finalData = {
+            date: new Date().toLocaleDateString(),
+            customer: customerName,
+            items: billData.map(item => `${item.product} (₹${item.price})`).join(", "),
+            total: total
+        };
+
+        console.log("Data ready for API:", finalData);
+        alert(`Local check successful!\n\nCustomer: ${customerName}\nTotal: ₹${total}\n\nReady to be sent to Google Sheets via API.`);
+        
+        // When Google Sheets API is ready, you will uncomment this:
+        /*
+        fetch("YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL", {
+            method: "POST",
+            body: JSON.stringify(finalData)
+        }).then(res => res.json())
+          .then(data => {
+              alert("Data saved to Google Sheets!");
+              // clear form
+          });
+        */
+
+        function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var data = JSON.parse(e.postData.contents);
+
+  sheet.appendRow([data.date, data.customer, data.items, data.total]);
+
+  return ContentService.createTextOutput(JSON.stringify({"status": "success"})).setMimeType(ContentService.MimeType.JSON);
+}
+    });
+</script>
+</body>
+</html>
