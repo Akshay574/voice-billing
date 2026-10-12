@@ -3,28 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sahjanand Provision Store - Voice Billing</title>
+    <title>Sahjanand Provision Store</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { font-family: Arial, sans-serif; background-color: #f4f4f9; padding: 20px; }
         .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         h2 { text-align: center; color: #d32f2f; }
-        .form-group { margin-bottom: 15px; }
-        select, button { width: 100%; padding: 10px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; }
-        button { cursor: pointer; border: none; font-weight: bold; margin-top: 10px; }
-        .btn-mic { background-color: #1976d2; color: white; }
-        .btn-mic.listening { background-color: #d32f2f; animation: pulse 1.5s infinite; }
-        .btn-save { background-color: #388e3c; color: white; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        input, select, button { width: 100%; padding: 10px; margin: 10px 0; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; box-sizing: border-box; }
+        button { cursor: pointer; border: none; font-weight: bold; color: white; }
+        .btn-blue { background-color: #1976d2; }
+        .btn-green { background-color: #388e3c; }
+        .btn-red { background-color: #d32f2f; }
+        .listening { animation: pulse 1.5s infinite; background-color: #d32f2f; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f4f4f9; }
-        .total-row { font-weight: bold; font-size: 18px; text-align: right; }
-        #status { text-align: center; color: #666; margin-top: 10px; font-size: 14px; }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.02); }
-            100% { transform: scale(1); }
-        }
+        .hidden { display: none; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
     </style>
 </head>
 <body>
@@ -32,55 +27,113 @@
 <div class="container">
     <h2>સહજાનંદ પ્રોવિઝન સ્ટોર</h2>
     
-    <div class="form-group">
-        <label for="customer">Customer Name (Udhar Khata):</label>
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen">
+        <h3>Login</h3>
+        <input type="text" id="loginId" placeholder="User ID (Admin = admin, Soni = 1)">
+        <input type="password" id="loginPass" placeholder="Password">
+        <button class="btn-blue" onclick="login()">Login</button>
+        <p style="color:red; font-size:14px;" id="loginError"></p>
+    </div>
+
+    <!-- ADMIN DASHBOARD -->
+    <div id="adminScreen" class="hidden">
+        <h3>Admin: Voice Billing</h3>
         <select id="customer">
             <option value="Select">Select Customer</option>
             <option value="Soni">Soni</option>
             <option value="Patel">Patel</option>
-            <option value="Sharma">Sharma</option>
         </select>
+        
+        <button id="micBtn" class="btn-blue">🎤 Start Voice Billing</button>
+        <p id="status" style="text-align:center; font-size:14px; color:#666;">Click mic and speak (e.g. "Maggi 25")</p>
+
+        <table id="billTable">
+            <thead><tr><th>Product</th><th>Price</th></tr></thead>
+            <tbody id="billBody"></tbody>
+            <tfoot><tr><th>Total:</th><th id="totalAmount">₹0</th></tr></tfoot>
+        </table>
+        
+        <button class="btn-green" onclick="saveBill()">💾 Save Bill to Supabase</button>
+        <hr>
+        <button class="btn-blue" onclick="loadLedger('Admin')">📜 View All Records</button>
+        <button class="btn-red" onclick="logout()">Logout</button>
     </div>
 
-    <button id="micBtn" class="btn-mic">🎤 Start Voice Billing</button>
-    <div id="status">Click the mic and speak (e.g., "Maggi 25" or "મેગી 25")</div>
+    <!-- CUSTOMER DASHBOARD -->
+    <div id="customerScreen" class="hidden">
+        <h3 id="customerWelcome">Welcome</h3>
+        <button class="btn-blue" onclick="loadLedger(currentUser)">📜 My Khata (Ledger)</button>
+        <button class="btn-red" onclick="logout()">Logout</button>
+    </div>
 
-    <table id="billTable">
-        <thead>
-            <tr>
-                <th>Product</th>
-                <th>Price (₹)</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody id="billBody">
-            <!-- Rows will be added here -->
-        </tbody>
-        <tfoot>
-            <tr>
-                <td class="total-row">Total:</td>
-                <td colspan="2" class="total-row" id="totalAmount">₹0</td>
-            </tr>
-        </tfoot>
-    </table>
+    <!-- LEDGER VIEW -->
+    <div id="ledgerView" class="hidden" style="margin-top:20px;">
+        <h3>Ledger Details</h3>
+        <table id="ledgerTable">
+            <thead><tr><th>Date</th><th>Customer</th><th>Items</th><th>Total</th></tr></thead>
+            <tbody id="ledgerBody"></tbody>
+        </table>
+    </div>
 
-    <button id="saveBtn" class="btn-save">💾 Save Bill to Google Sheets</button>
 </div>
 
 <script>
+    // --- SUPABASE SETUP ---
+    // અહીં તમારી Supabase ની URL અને KEY પેસ્ટ કરો
+    const SUPABASE_URL = ' https://vcyfdzbpzdqtkqknnoag.supabase.co/rest/v1/ledger';
+    const SUPABASE_KEY = 'sb_publishable_VqenOh1vV-558JX0ZjAITg_9wtDp7Xz';
+    
+    const { createClient } = supabase;
+    const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    // --- USERS DATABASE ---
+    const users = {
+        "admin": { pass: "admin123", role: "admin", name: "Admin" },
+        "1": { pass: "23451", role: "customer", name: "Soni" },
+        "2": { pass: "5678", role: "customer", name: "Patel" }
+    };
+
+    let currentUser = "";
     let total = 0;
-    const billData = [];
+    let billData = [];
+
+    // --- LOGIN & LOGOUT ---
+    function login() {
+        const id = document.getElementById('loginId').value;
+        const pass = document.getElementById('loginPass').value;
+        
+        if(users[id] && users[id].pass === pass) {
+            document.getElementById('loginScreen').classList.add('hidden');
+            currentUser = users[id].name;
+            
+            if(users[id].role === "admin") {
+                document.getElementById('adminScreen').classList.remove('hidden');
+            } else {
+                document.getElementById('customerScreen').classList.remove('hidden');
+                document.getElementById('customerWelcome').innerText = "Welcome, " + currentUser;
+            }
+        } else {
+            document.getElementById('loginError').innerText = "Invalid ID or Password!";
+        }
+    }
+
+    function logout() {
+        document.getElementById('adminScreen').classList.add('hidden');
+        document.getElementById('customerScreen').classList.add('hidden');
+        document.getElementById('ledgerView').classList.add('hidden');
+        document.getElementById('loginScreen').classList.remove('hidden');
+        document.getElementById('loginId').value = "";
+        document.getElementById('loginPass').value = "";
+        currentUser = "";
+    }
+
+    // --- VOICE BILLING LOGIC ---
     const micBtn = document.getElementById('micBtn');
     const statusTxt = document.getElementById('status');
-    const billBody = document.getElementById('billBody');
-    const totalAmount = document.getElementById('totalAmount');
-
-    // Initialize Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
-    recognition.lang = 'gu-IN'; // Supports Gujarati & English mix
-    recognition.interimResults = false;
-    recognition.continuous = false;
+    recognition.lang = 'gu-IN';
 
     micBtn.addEventListener('click', () => {
         recognition.start();
@@ -90,106 +143,86 @@
     });
 
     recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript.trim();
-        statusTxt.innerText = `You said: "${transcript}"`;
-        parseVoiceInput(transcript);
-    };
-
-    recognition.onspeechend = () => {
-        recognition.stop();
-        micBtn.classList.remove('listening');
-        micBtn.innerText = "🎤 Start Voice Billing";
-    };
-
-    recognition.onerror = (event) => {
-        statusTxt.innerText = "Error occurred in recognition: " + event.error;
-        micBtn.classList.remove('listening');
-        micBtn.innerText = "🎤 Start Voice Billing";
-    };
-
-    function parseVoiceInput(text) {
-        // Regex to separate product name from the last number (price)
-        // E.g., "bajnano lot 1kg 45" -> Product: "bajnano lot 1kg", Price: 45
+        const text = event.results[0][0].transcript.trim();
         const match = text.match(/(.+?)\s+(\d+)$/);
         
         if (match) {
             const product = match[1].trim();
             const price = parseInt(match[2], 10);
-            addBillItem(product, price);
+            billData.push({ product, price });
+            total += price;
+            
+            document.getElementById('billBody').innerHTML += `<tr><td>${product}</td><td>₹${price}</td></tr>`;
+            document.getElementById('totalAmount').innerText = `₹${total}`;
+            statusTxt.innerText = `Added: ${product} ₹${price}`;
         } else {
-            statusTxt.innerText = `Could not find price in: "${text}". Please say "Item Price" (e.g., Maggi 25)`;
+            statusTxt.innerText = "Could not find price. Try again.";
         }
-    }
-
-    function addBillItem(product, price) {
-        // Add to array
-        billData.push({ product, price });
-        
-        // Update Total
-        total += price;
-        totalAmount.innerText = `₹${total}`;
-
-        // Add to UI Table
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${product}</td>
-            <td>₹${price}</td>
-            <td><button onclick="removeItem(this, ${price})" style="background:red; color:white; padding:5px; margin:0;">X</button></td>
-        `;
-        billBody.appendChild(row);
-    }
-
-    window.removeItem = function(btn, price) {
-        const row = btn.parentNode.parentNode;
-        row.parentNode.removeChild(row);
-        total -= price;
-        totalAmount.innerText = `₹${total}`;
-        // Note: For a production app, you would also remove it from the billData array here.
     };
 
-    // Placeholder for Google Sheets API integration
-    document.getElementById('saveBtn').addEventListener('click', () => {
-        const customerName = document.getElementById('customer').value;
-        if (customerName === "Select") {
-            alert("Please select a customer first!");
-            return;
-        }
-        if (total === 0) {
-            alert("Bill is empty!");
-            return;
-        }
+    recognition.onspeechend = () => resetMic();
+    recognition.onerror = () => { resetMic(); statusTxt.innerText = "Voice error. Try again."; };
 
-        const finalData = {
-            date: new Date().toLocaleDateString(),
-            customer: customerName,
-            items: billData.map(item => `${item.product} (₹${item.price})`).join(", "),
-            total: total
-        };
+    function resetMic() {
+        micBtn.classList.remove('listening');
+        micBtn.innerText = "🎤 Start Voice Billing";
+    }
 
-        console.log("Data ready for API:", finalData);
-        alert(`Local check successful!\n\nCustomer: ${customerName}\nTotal: ₹${total}\n\nReady to be sent to Google Sheets via API.`);
+    // --- SAVE BILL TO SUPABASE ---
+    async function saveBill() {
+        const cust = document.getElementById('customer').value;
+        if (cust === "Select" || total === 0) return alert("Select customer or add items!");
+
+        micBtn.innerText = "Saving to Database...";
         
-        // When Google Sheets API is ready, you will uncomment this:
-        /*
-        fetch("YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL", {
-            method: "POST",
-            body: JSON.stringify(finalData)
-        }).then(res => res.json())
-          .then(data => {
-              alert("Data saved to Google Sheets!");
-              // clear form
-          });
-        */
+        const finalItems = billData.map(i => `${i.product} (₹${i.price})`).join(", ");
+        const currentDate = new Date().toLocaleDateString('en-GB'); // DD/MM/YYYY format
 
-        function doPost(e) {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var data = JSON.parse(e.postData.contents);
+        // Supabase Insert Data
+        const { data, error } = await supabaseClient
+            .from('ledger')
+            .insert([
+                { date: currentDate, customer: cust, items: finalItems, total: total }
+            ]);
 
-  sheet.appendRow([data.date, data.customer, data.items, data.total]);
+        if (error) {
+            alert("Error: " + error.message);
+            resetMic();
+        } else {
+            alert("Bill Saved Successfully!");
+            billData = []; total = 0;
+            document.getElementById('billBody').innerHTML = "";
+            document.getElementById('totalAmount').innerText = "₹0";
+            resetMic();
+        }
+    }
 
-  return ContentService.createTextOutput(JSON.stringify({"status": "success"})).setMimeType(ContentService.MimeType.JSON);
-}
-    });
+    // --- FETCH LEDGER FROM SUPABASE ---
+    async function loadLedger(customerName) {
+        document.getElementById('ledgerView').classList.remove('hidden');
+        document.getElementById('ledgerBody').innerHTML = "<tr><td colspan='4'>Loading Data...</td></tr>";
+
+        let query = supabaseClient.from('ledger').select('*');
+        
+        // જો ગ્રાહક લોગિન હોય તો ફક્ત તેનો જ ડેટા લાવો
+        if (customerName !== 'Admin') {
+            query = query.eq('customer', customerName);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+            document.getElementById('ledgerBody').innerHTML = `<tr><td colspan='4'>Error: ${error.message}</td></tr>`;
+            return;
+        }
+
+        let rows = "";
+        data.forEach(row => {
+            rows += `<tr><td>${row.date}</td><td>${row.customer}</td><td>${row.items}</td><td>₹${row.total}</td></tr>`;
+        });
+        document.getElementById('ledgerBody').innerHTML = rows || "<tr><td colspan='4'>No records found</td></tr>";
+    }
 </script>
+
 </body>
 </html>
